@@ -1,564 +1,300 @@
-"""
-================================================================================
-نظام تصميم وإدارة الجداول الدراسية الجامعية
-University Academic Schedule Design & Management System
---------------------------------------------------------------------------------
-Developer : Dr. Mounira Kezadri
-Institution: Applied College — Taibah University
-Unit       : Computer Science & Information Programs
-Version    : 1.0
-================================================================================
-"""
-
 import streamlit as st
 import pandas as pd
 import io
-import re
-import json
-import logging
 from datetime import datetime
-from openpyxl import Workbook
+from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 
-# ── Logging setup ─────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 1.  CONFIGURATION  (centralised — easy to extend for other institutions)
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Default time slots — can be overridden via config.json in the same directory
-DEFAULT_SLOTS = [
+# ------------------------------------------------------------
+# Define standard time slots (label, start, end in minutes)
+# ------------------------------------------------------------
+STANDARD_SLOTS = [
     {"label": "8:30-9:45",   "start_min": 8*60+30, "end_min": 9*60+45},
     {"label": "10:00-11:15", "start_min": 10*60,   "end_min": 11*60+15},
     {"label": "11:30-12:45", "start_min": 11*60+30, "end_min": 12*60+45},
     {"label": "13:00-14:15", "start_min": 13*60,   "end_min": 14*60+15},
 ]
 
-def load_config() -> list:
-    """Load time slots from config.json if present, otherwise use defaults."""
-    try:
-        with open("config.json", "r", encoding="utf-8") as fh:
-            cfg = json.load(fh)
-            slots = cfg.get("time_slots", DEFAULT_SLOTS)
-            logger.info("Loaded %d slots from config.json", len(slots))
-            return slots
-    except FileNotFoundError:
-        return DEFAULT_SLOTS
-    except (json.JSONDecodeError, KeyError) as exc:
-        logger.warning("config.json error (%s) — using defaults.", exc)
-        return DEFAULT_SLOTS
+# Mapping from actual booking start minutes to standard slot label
+def map_to_standard_slot(start_min):
+    for slot in STANDARD_SLOTS:
+        if abs(start_min - slot["start_min"]) <= 10:
+            return slot["label"]
+    return f"{start_min//60:02d}:{start_min%60:02d}"
 
-STANDARD_SLOTS: list = load_config()
+# ------------------------------------------------------------
+# Helper: parse a time string like "8:30 - 9:45"
+# ------------------------------------------------------------
+def parse_time_slot(time_str):
+    parts = time_str.replace('–', '-').split('-')
+    start = parts[0].strip()
+    end = parts[1].strip()
+    start_dt = datetime.strptime(start, "%H:%M")
+    end_dt = datetime.strptime(end, "%H:%M")
+    start_min = start_dt.hour * 60 + start_dt.minute
+    end_min = end_dt.hour * 60 + end_dt.minute
+    return start_min, end_min, start, end
 
-DAYS_EN   = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
-DAYS_MAP  = {
-    'Sunday': 'الاحد', 'Monday': 'الاثنين', 'Tuesday': 'الثلاثاء',
-    'Wednesday': 'الأربعاء', 'Thursday': 'الخميس'
-}
-INVALID_ROOMS = {"?", "nan", "", "N/A"}
-
-# ── Excel style constants ──────────────────────────────────────────────────────
-HEADER_FILL = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-EMPTY_FILL  = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-WHITE_FILL  = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-GRAY_FILL   = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-WHITE_FONT  = Font(color="FFFFFF", bold=True)
-THIN        = Side(style='thin')
-BORDER      = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 2.  PARSING UTILITIES
-# ══════════════════════════════════════════════════════════════════════════════
-
-def split_course_code(code: str) -> tuple[str, str]:
-    """Split 'CS101' → ('CS', '101').  Returns (code, '') if no numeric suffix."""
-    match = re.match(r"([a-zA-Z]+)([0-9]+)", str(code))
-    if match:
-        return match.group(1), match.group(2)
-    return str(code), ""
-
-
-def parse_time_range(t_str: str) -> tuple[int, int]:
-    """
-    Convert 'HH:MM-HH:MM' or 'HH:MM–HH:MM' to (start_minutes, end_minutes).
-    Returns (0, 0) on failure and logs a warning.
-    """
-    cleaned = str(t_str).replace('\u2013', '-').replace('\u2014', '-').strip()
-    parts = cleaned.split('-')
-    if len(parts) != 2:
-        logger.warning("Unrecognised time format: '%s'", t_str)
-        return 0, 0
-    try:
-        s = datetime.strptime(parts[0].strip(), "%H:%M")
-        e = datetime.strptime(parts[1].strip(), "%H:%M")
-        return s.hour * 60 + s.minute, e.hour * 60 + e.minute
-    except ValueError:
-        logger.warning("Cannot parse time value: '%s'", t_str)
-        return 0, 0
-
-
-def _detect_row_pattern(df: pd.DataFrame, r: int, c: int) -> int:
-    """
-    Detect whether data uses 3-row or 4-row layout for a given cell.
-
-    4-row layout (row offset):  0=day, 1=course_name, 2=course_code, 3=time, 4=room
-    3-row layout (row offset):  0=day, 1=course_code, 2=time, 3=room
-
-    Returns the name_offset (1 for 4-row, 0 for 3-row — 0 means no name row).
-    """
-    try:
-        candidate = str(df.iloc[r + 1, c]).strip()
-        # If the cell after the day row looks like a course code (letters+digits)
-        # then we are in 3-row mode (no Arabic name row).
-        if re.match(r"^[a-zA-Z]+\d+$", candidate):
-            return 0   # 3-row: code is at r+1
-        return 1       # 4-row: name is at r+1, code is at r+2 — but code was already at r
-    except IndexError:
-        return 1
-
-
-def parse_excel_files(files) -> pd.DataFrame:
-    """
-    Read one or more uploaded Excel files and return a unified DataFrame.
-
-    Supports both 3-row and 4-row per-course layouts, detected automatically
-    per cell.  Handles both regular hyphen and em-dash time separators.
-    """
-    all_data: list[dict] = []
-
-    for f in files:
-        # Read file bytes once — avoid exhausting the stream on re-reads
-        raw = io.BytesIO(f.read())
-        try:
-            xl = pd.ExcelFile(raw)
-        except Exception as exc:
-            st.warning(f"⚠️  Could not open '{f.name}': {exc}")
+# ------------------------------------------------------------
+# Parse a single Excel file (in-memory bytes)
+# Supports both 3-row and 4-row formats.
+# ------------------------------------------------------------
+def parse_file(file_bytes, filename):
+    all_bookings = []
+    excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
+    for sheet_name in excel_file.sheet_names:
+        df = excel_file.parse(sheet_name, header=None)
+        num_cols = df.shape[1]
+        # Find section rows (F1, F2, ...)
+        section_rows = []
+        for idx, row in df.iterrows():
+            cell = str(row[0]) if pd.notna(row[0]) else ""
+            if cell.startswith('F') and cell[1:].isdigit():
+                section_rows.append((idx, cell))
+        if not section_rows:
             continue
-
-        for sheet in xl.sheet_names:
-            try:
-                df = xl.parse(sheet, header=None).reset_index(drop=True)
-            except Exception as exc:
-                st.warning(f"⚠️  Could not parse sheet '{sheet}' in '{f.name}': {exc}")
-                continue
-
-            section = "Unknown"
-
-            for r in range(len(df) - 1):          # -1 guards against out-of-bounds
-                val = str(df.iloc[r, 0]).strip()
-
-                # ── Section header (e.g. F1, F2, …) ──────────────────────────
-                if val and val != "nan" and not val.isdigit() and val not in DAYS_MAP:
-                    section = val
+        # Process each section
+        for sec_idx, (start_row, section_name) in enumerate(section_rows):
+            end_row = section_rows[sec_idx+1][0] if sec_idx+1 < len(section_rows) else len(df)
+            # Find day rows (Sunday..Thursday) in this section
+            day_rows = []
+            for r in range(start_row, end_row):
+                first_cell = str(df.iloc[r, 0]) if pd.notna(df.iloc[r, 0]) else ""
+                if first_cell in ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']:
+                    day_rows.append(r)
+            # For each day, detect format (3-row or 4-row)
+            for day_row in day_rows:
+                if day_row + 3 >= len(df):
                     continue
-
-                if val not in DAYS_MAP:
-                    continue
-
-                day_en = val
-
-                for c in range(1, df.shape[1]):
-                    code_full = str(df.iloc[r, c]).strip()
-
-                    # Skip empty / numeric-only cells
-                    if not code_full or code_full.lower() in {"nan", "1", "2", "3", "4", "5"}:
+                row2 = df.iloc[day_row + 2]  # third row after day
+                is_3row = any(":" in str(cell) for cell in row2 if pd.notna(cell))
+                if is_3row:
+                    courses_row = df.iloc[day_row + 1]
+                    times_row = df.iloc[day_row + 2]
+                    rooms_row = df.iloc[day_row + 3]
+                else:
+                    courses_row = df.iloc[day_row + 1]
+                    names_row = df.iloc[day_row + 2]
+                    times_row = df.iloc[day_row + 3]
+                    rooms_row = df.iloc[day_row + 4]
+                day_name = str(df.iloc[day_row, 0])
+                for col in range(1, num_cols):
+                    course_code = courses_row[col] if pd.notna(courses_row[col]) else ""
+                    if not course_code:
                         continue
-
-                    # ── Detect 3-row vs 4-row layout per cell ─────────────────
-                    name_offset = _detect_row_pattern(df, r, c)
-
+                    # Get Arabic name if present
+                    course_name = ""
+                    if not is_3row:
+                        course_name = names_row[col] if pd.notna(names_row[col]) else ""
+                    time_str = times_row[col] if pd.notna(times_row[col]) else ""
+                    room = rooms_row[col] if pd.notna(rooms_row[col]) else ""
+                    if not time_str or not room:
+                        continue
                     try:
-                        if name_offset == 1:
-                            # 4-row: day | name | code | time | room
-                            course_name = str(df.iloc[r + 1, c]).strip()
-                            time_str    = str(df.iloc[r + 2, c]).strip()
-                            room        = str(df.iloc[r + 3, c]).strip()
-                        else:
-                            # 3-row: day | code | time | room
-                            course_name = ""
-                            time_str    = str(df.iloc[r + 1, c]).strip()
-                            room        = str(df.iloc[r + 2, c]).strip()
-                    except IndexError:
-                        logger.warning("Row index out of range at sheet=%s r=%d c=%d", sheet, r, c)
+                        start_min, end_min, start_str, end_str = parse_time_slot(time_str)
+                    except:
                         continue
-
-                    prefix, num = split_course_code(code_full)
-                    start_m, end_m = parse_time_range(time_str)
-
-                    # Skip rows where time could not be parsed (both values stay 0)
-                    if start_m == 0 and end_m == 0:
-                        continue
-
-                    all_data.append({
-                        "التخصص":  sheet,
-                        "المقرر":  course_name,
-                        "الرمز":   prefix,
-                        "الرقم":   num,
-                        "الشعبة":  section,
-                        "Day":     day_en,
-                        "Time":    time_str,
-                        "القاعة":  room,
-                        "StartMin": start_m,
-                        "EndMin":   end_m,
+                    all_bookings.append({
+                        "Specialty": sheet_name,
+                        "Section": section_name,
+                        "Day": day_name,
+                        "Start": start_str,
+                        "End": end_str,
+                        "StartMin": start_min,
+                        "EndMin": end_min,
+                        "Room": room,
+                        "CourseCode": course_code,
+                        "CourseName": course_name,
+                        "File": filename,
+                        "OriginalTime": time_str
                     })
+    return all_bookings
 
-    if not all_data:
-        return pd.DataFrame()
-
-    return pd.DataFrame(all_data)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 3.  CONFLICT DETECTION
-# ══════════════════════════════════════════════════════════════════════════════
-
-def detect_conflicts(df: pd.DataFrame) -> list[dict]:
-    """
-    Return a list of room-time conflicts (two different courses/sections
-    assigned to the same room at overlapping times on the same day).
-    """
-    if df.empty:
-        return []
-
-    conflicts: list[dict] = []
-    valid_df = df[~df['القاعة'].isin(INVALID_ROOMS)].copy()
-    valid_df = valid_df.sort_values(['القاعة', 'Day', 'StartMin'])
-
-    for (room, day), group in valid_df.groupby(['القاعة', 'Day']):
-        rows = group.to_dict('records')
-        for i in range(len(rows) - 1):
-            curr, nxt = rows[i], rows[i + 1]
-            overlap = nxt['StartMin'] < curr['EndMin']
-            same_entry = (curr['الرمز'] == nxt['الرمز'] and curr['الشعبة'] == nxt['الشعبة'])
-            if overlap and not same_entry:
+# ------------------------------------------------------------
+# Conflict detection
+# ------------------------------------------------------------
+def find_conflicts(df):
+    conflicts = []
+    for (room, day), group in df.groupby(['Room', 'Day']):
+        group = group.sort_values('StartMin')
+        for i in range(len(group)-1):
+            current = group.iloc[i]
+            next_ = group.iloc[i+1]
+            if next_['StartMin'] < current['EndMin']:
                 conflicts.append({
-                    "القاعة":    room,
-                    "اليوم":     DAYS_MAP.get(day, day),
-                    "التفاصيل":  f"تداخل بين [{curr['الرمز']}{curr['الرقم']}] و [{nxt['الرمز']}{nxt['الرقم']}]",
-                    "الشعبتان":  f"{curr['الشعبة']} / {nxt['الشعبة']}",
-                    "الوقت":     f"{curr['Time']} ↔ {nxt['Time']}",
+                    "Room": room,
+                    "Day": day,
+                    "Conflict": f"{current['CourseCode']} {current['CourseName']} ({current['Section']}) {current['Start']}-{current['End']} overlaps with {next_['CourseCode']} {next_['CourseName']} ({next_['Section']}) {next_['Start']}-{next_['End']}"
                 })
-    return conflicts
+    return pd.DataFrame(conflicts)
 
+# ------------------------------------------------------------
+# Weekly grid for a room using standard slots.
+# Each cell contains:
+#   line 1: original time
+#   line 2: course code
+#   line 3: course name (if present)
+#   line 4: section
+# ------------------------------------------------------------
+def weekly_grid_for_room(df, room_name):
+    room_df = df[df['Room'] == room_name]
+    room_df['Slot'] = room_df['StartMin'].apply(map_to_standard_slot)
+    
+    days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
+    slot_labels = [slot["label"] for slot in STANDARD_SLOTS]
+    grid = {day: {slot: [] for slot in slot_labels} for day in days}
+    for _, row in room_df.iterrows():
+        day = row['Day']
+        slot = row['Slot']
+        if slot in grid[day]:
+            # Build the cell content as lines
+            lines = [row['OriginalTime']]
+            lines.append(row['CourseCode'])
+            if row['CourseName'] and not pd.isna(row['CourseName']):
+                lines.append(row['CourseName'])
+            lines.append(row['Section'])
+            grid[day][slot].append("\n".join(lines))
+    # Convert to DataFrame
+    data = []
+    for day in days:
+        row = []
+        for slot in slot_labels:
+            entries = grid[day][slot]
+            cell_text = "\n\n".join(entries) if entries else ""
+            row.append(cell_text)
+        data.append(row)
+    return pd.DataFrame(data, index=days, columns=slot_labels)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 4.  EXPORT FUNCTIONS
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _header_row(ws, values: list, col_widths: dict | None = None):
-    """Write a styled header row to a worksheet."""
-    ws.append(values)
-    for cell in ws[1]:
-        cell.fill      = HEADER_FILL
-        cell.font      = WHITE_FONT
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-        cell.border    = BORDER
-    if col_widths:
-        for col_letter, width in col_widths.items():
-            ws.column_dimensions[col_letter].width = width
-
-
-def export_linear_format(df: pd.DataFrame) -> bytes:
-    """
-    Export a flat linear schedule sorted by specialization → course → section.
-    Each row = one section; day columns contain the time slot for that day.
-    """
+# ------------------------------------------------------------
+# Export all rooms to a formatted Excel file
+# ------------------------------------------------------------
+def export_all_rooms_excel(df):
     output = io.BytesIO()
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Linear Schedule"
-    ws.sheet_view.rightToLeft = True
-
-    headers = ["التخصص", "المقرر", "الرمز", "الرقم", "الشعبة",
-               "الاحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "القاعة"]
-    col_widths = {'A': 15, 'B': 28, 'C': 10, 'D': 8, 'E': 10,
-                  'F': 16, 'G': 16, 'H': 16, 'I': 16, 'J': 16, 'K': 15}
-    _header_row(ws, headers, col_widths)
-
-    days_cols = {'Sunday': 6, 'Monday': 7, 'Tuesday': 8, 'Wednesday': 9, 'Thursday': 10}
-    df_sorted = df.sort_values(['التخصص', 'المقرر', 'الشعبة'])
-    grouped   = df_sorted.groupby(
-        ['التخصص', 'المقرر', 'الرمز', 'الرقم', 'الشعبة', 'القاعة'], sort=False
-    )
-
-    last_item_id = None
-    use_gray     = False
-
-    for (spec, name, pref, num, sec, room), group in grouped:
-        current_id = (spec, name, sec)
-        if current_id != last_item_id:
-            use_gray     = not use_gray
-            last_item_id = current_id
-
-        row_data = [spec, name, pref, num, sec, "", "", "", "", "", room]
-        for _, item in group.iterrows():
-            col_idx = days_cols.get(item['Day'])
-            if col_idx:
-                row_data[col_idx - 1] = item['Time']
-
-        ws.append(row_data)
-        fill = GRAY_FILL if use_gray else WHITE_FILL
-        for cell in ws[ws.max_row]:
-            cell.fill      = fill
-            cell.border    = BORDER
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for room in sorted(df['Room'].unique()):
+            weekly = weekly_grid_for_room(df, room)
+            if not weekly.empty:
+                sheet_name = room[:31]
+                weekly.to_excel(writer, sheet_name=sheet_name, index=True)
+    wb = load_workbook(output)
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                         top=Side(style='thin'), bottom=Side(style='thin'))
+    green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+    for sheet in wb.worksheets:
+        # Set column widths based on longest line
+        for col in sheet.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                if cell.value:
+                    lines = str(cell.value).split('\n')
+                    for line in lines:
+                        max_length = max(max_length, len(line))
+            adjusted_width = min(max_length + 2, 50)
+            sheet.column_dimensions[col_letter].width = adjusted_width
+        # Style header row
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal='center', vertical='center')
-
-    ws.freeze_panes = "A2"
-    wb.save(output)
-    return output.getvalue()
-
-
-def export_rooms_styled(df: pd.DataFrame, mode: str = "occupied") -> bytes:
-    """
-    Export room schedules.
-    mode='occupied' → one sheet per room, weekly grid with color-coded empty slots.
-    mode='empty'    → single sheet listing free rooms per day/slot.
-    """
-    output = io.BytesIO()
-    wb = Workbook()
-    wb.remove(wb.active)
-    slots = [s["label"] for s in STANDARD_SLOTS]
-
-    if mode == "occupied":
-        valid_rooms = sorted(
-            r for r in df['القاعة'].unique() if r not in INVALID_ROOMS
-        )
-        for room in valid_rooms:
-            ws = wb.create_sheet(title=str(room)[:31])
-            ws.sheet_view.rightToLeft = True
-            col_widths = {'A': 15}
-            col_widths.update({get_column_letter(i): 25 for i in range(2, len(slots) + 2)})
-            _header_row(ws, ["اليوم / الحصة"] + slots, col_widths)
-
-            room_df = df[df['القاعة'] == room]
-
-            for d_en in DAYS_EN:
-                row_vals = [DAYS_MAP.get(d_en, d_en)]
-                day_df   = room_df[room_df['Day'] == d_en]
-
-                for slot_cfg in STANDARD_SLOTS:
-                    cell_lines: list[str] = []
-                    for _, row in day_df.iterrows():
-                        if abs(row['StartMin'] - slot_cfg["start_min"]) <= 30:
-                            cell_lines.append(
-                                f"{row['الرمز']}{row['الرقم']}\n{row['المقرر']}\n({row['الشعبة']})"
-                            )
-                    row_vals.append("\n\n".join(cell_lines))
-
-                ws.append(row_vals)
-
-            for row in ws.iter_rows(min_row=2):
-                ws.row_dimensions[row[0].row].height = 70
-                for cell in row:
-                    cell.border    = BORDER
-                    cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
-                    if cell.column > 1 and not cell.value:
-                        cell.fill = EMPTY_FILL
-
-            ws.freeze_panes = "B2"
-
-    else:
-        # ── Available rooms sheet ──────────────────────────────────────────────
-        ws = wb.create_sheet(title="Available Rooms")
-        ws.sheet_view.rightToLeft = True
-        col_widths = {'A': 16}
-        col_widths.update({get_column_letter(i): 35 for i in range(2, len(slots) + 2)})
-        _header_row(ws, ["Day / Slot"] + slots, col_widths)
-
-        all_rooms = set(df['القاعة'].unique()) - INVALID_ROOMS
-
-        for d_en in DAYS_EN:
-            row_data = [DAYS_MAP.get(d_en, d_en)]
-            day_df   = df[df['Day'] == d_en]
-
-            for slot_cfg in STANDARD_SLOTS:
-                occupied = set(
-                    day_df[
-                        day_df['StartMin'].apply(
-                            lambda x: abs(x - slot_cfg["start_min"]) <= 30
-                        )
-                    ]['القاعة'].unique()
-                ) - INVALID_ROOMS
-                free = sorted(all_rooms - occupied)
-                row_data.append(", ".join(free))
-
-            ws.append(row_data)
-
-        for row in ws.iter_rows(min_row=2):
-            ws.row_dimensions[row[0].row].height = 55
+            cell.border = thin_border
+        # Style data cells
+        for row in sheet.iter_rows(min_row=2):
             for cell in row:
-                cell.border    = BORDER
-                cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                cell.border = thin_border
+                if cell.value is None or cell.value == "":
+                    cell.fill = green_fill
+        sheet.freeze_panes = 'A2'
+    output_final = io.BytesIO()
+    wb.save(output_final)
+    return output_final.getvalue()
 
-        ws.freeze_panes = "B2"
+# ------------------------------------------------------------
+# Streamlit App
+# ------------------------------------------------------------
+st.set_page_config(page_title="Room Schedule Viewer", layout="wide")
+st.title("📅 Room Schedule Viewer")
 
-    wb.save(output)
-    return output.getvalue()
+uploaded_files = st.file_uploader(
+    "Upload Excel schedule files",
+    type=["xlsx"],
+    accept_multiple_files=True
+)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 5.  STREAMLIT UI
-# ══════════════════════════════════════════════════════════════════════════════
-
-def render_metrics(data: pd.DataFrame, conflicts: list):
-    """Show a quick-stats bar at the top of the page."""
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📚 المقررات",  data['الرمز'].nunique()    if not data.empty else 0)
-    c2.metric("🏢 القاعات",   data['القاعة'].nunique()   if not data.empty else 0)
-    c3.metric("👥 الشعب",     data['الشعبة'].nunique()   if not data.empty else 0)
-    c4.metric(
-        "⚠️ التعارضات", len(conflicts),
-        delta="تعارض" if conflicts else None,
-        delta_color="inverse"
+if uploaded_files:
+    all_bookings = []
+    for file in uploaded_files:
+        with st.spinner(f"Parsing {file.name}..."):
+            bookings = parse_file(file.read(), file.name)
+            all_bookings.extend(bookings)
+    if not all_bookings:
+        st.warning("No bookings found. Check file format.")
+        st.stop()
+    
+    bookings_df = pd.DataFrame(all_bookings)
+    st.success(f"Loaded {len(bookings_df)} bookings from {len(uploaded_files)} file(s).")
+    
+    # Conflicts
+    conflicts_df = find_conflicts(bookings_df)
+    if not conflicts_df.empty:
+        st.error(f"⚠️ Found {len(conflicts_df)} conflicts!")
+        with st.expander("Show conflicts"):
+            st.dataframe(conflicts_df)
+    else:
+        st.success("✅ No conflicts detected.")
+    
+    # Room selection and schedule
+    all_rooms = sorted(bookings_df['Room'].unique())
+    selected_room = st.sidebar.selectbox("Select a room", all_rooms)
+    st.subheader(f"Weekly Schedule for Room {selected_room}")
+    weekly = weekly_grid_for_room(bookings_df, selected_room)
+    st.dataframe(weekly, use_container_width=True)
+    
+    # Heatmap
+    st.subheader("Room Usage Heatmap (by day and standard time slot)")
+    bookings_df['Slot'] = bookings_df['StartMin'].apply(map_to_standard_slot)
+    slot_labels = [slot["label"] for slot in STANDARD_SLOTS]
+    heatmap = pd.crosstab(index=[bookings_df['Room'], bookings_df['Day']], columns=bookings_df['Slot'])
+    heatmap = heatmap.reindex(columns=slot_labels, fill_value=0)
+    st.dataframe(heatmap, use_container_width=True)
+    
+    # Course schedule
+    st.subheader("📖 Course Schedule")
+    # Create a friendly display name for the dropdown: "Code - Name (if any)"
+    bookings_df['CourseDisplay'] = bookings_df.apply(
+        lambda row: f"{row['CourseCode']} - {row['CourseName']}" if row['CourseName'] else row['CourseCode'],
+        axis=1
     )
-
-
-def main():
-    st.set_page_config(
-        page_title="نظام تصميم وإدارة الجداول",
-        page_icon="📅",
-        layout="wide",
-    )
-
-    # ── Page header ────────────────────────────────────────────────────────────
-    st.title("📅 نظام تصميم وإدارة الجداول الدراسية")
-    st.divider()
-
-    # ── File upload ────────────────────────────────────────────────────────────
-    uploaded = st.file_uploader(
-        "ارفع ملفات Excel (ملف لكل تخصص)",
-        type="xlsx",
-        accept_multiple_files=True,
-        help="يجب أن تكون الملفات بصيغة .xlsx وتتبع الهيكل الموحَّد الموضَّح في README",
-    )
-
-    if not uploaded:
-        st.info("⬆️  ارفع ملف Excel واحداً أو أكثر للبدء.")
-        return
-
-    # ── Parse & cache in session_state (avoids re-parsing on every widget click)
-    file_key = tuple(f.name + str(f.size) for f in uploaded)
-
-    if st.session_state.get("file_key") != file_key:
-        with st.spinner("⏳ جارٍ تحليل الملفات…"):
-            data      = parse_excel_files(uploaded)
-            conflicts = detect_conflicts(data)
-        st.session_state["file_key"]  = file_key
-        st.session_state["data"]      = data
-        st.session_state["conflicts"] = conflicts
-
-    data      = st.session_state["data"]
-    conflicts = st.session_state["conflicts"]
-
-    if data.empty:
-        st.error("❌ لم يُعثَر على بيانات صالحة. تحققي من هيكل الملفات.")
-        return
-
-    # ── Quick-stats bar ────────────────────────────────────────────────────────
-    render_metrics(data, conflicts)
-    st.divider()
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # TABS
-    # ══════════════════════════════════════════════════════════════════════════
-    tab1, tab2, tab3 = st.tabs([
-        "📋 التنسيق الخطي",
-        "🏢 القاعات والشواغر",
-        "⚠️ التعارضات",
-    ])
-
-    # ── Tab 1 : Linear schedule ────────────────────────────────────────────────
-    with tab1:
-        st.subheader("المعاينة الخطية — مرتبة حسب التخصص")
-
-        col_filter, col_dl = st.columns([3, 1])
-        with col_filter:
-            specs = ["الكل"] + sorted(data['التخصص'].unique().tolist())
-            chosen = st.selectbox("🔎 تصفية حسب التخصص", specs)
-        with col_dl:
-            st.write("")          # vertical alignment spacer
-            st.download_button(
-                "📥 تحميل Excel",
-                export_linear_format(data),
-                "Linear_Clean_Schedule.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-        display_df = data if chosen == "الكل" else data[data['التخصص'] == chosen]
-        st.dataframe(
-            display_df.sort_values(["التخصص", "المقرر"])
-                      [["التخصص", "المقرر", "الرمز", "الرقم", "الشعبة", "Day", "Time", "القاعة"]],
-            use_container_width=True,
-            height=500,
+    unique_courses = sorted(bookings_df[['CourseCode', 'CourseName', 'CourseDisplay']].drop_duplicates().values.tolist())
+    course_display_options = [f"{c[0]} - {c[1]}" if c[1] else c[0] for c in unique_courses]
+    selected_course_display = st.selectbox("Select a course", course_display_options)
+    # Find the corresponding code (first part)
+    selected_code = selected_course_display.split(" - ")[0] if " - " in selected_course_display else selected_course_display
+    course_schedule = bookings_df[bookings_df['CourseCode'] == selected_code][
+        ['Section', 'Day', 'Start', 'End', 'Room', 'Specialty']
+    ].reset_index(drop=True)
+    if not course_schedule.empty:
+        st.dataframe(course_schedule, use_container_width=True)
+        csv_course = course_schedule.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label=f"Download schedule for {selected_course_display} (CSV)",
+            data=csv_course,
+            file_name=f"{selected_code}_schedule.csv",
+            mime="text/csv"
         )
-
-    # ── Tab 2 : Rooms ──────────────────────────────────────────────────────────
-    with tab2:
-        st.subheader("جداول القاعات والشواغر")
-
-        # Room preview inside the app
-        valid_rooms = sorted(r for r in data['القاعة'].unique() if r not in INVALID_ROOMS)
-        selected_room = st.selectbox("👁️ معاينة جدول قاعة", valid_rooms)
-
-        if selected_room:
-            room_df = data[data['القاعة'] == selected_room]
-            slots   = [s["label"] for s in STANDARD_SLOTS]
-            preview = []
-            for d_en in DAYS_EN:
-                row_dict = {"اليوم": DAYS_MAP.get(d_en, d_en)}
-                day_df   = room_df[room_df['Day'] == d_en]
-                for slot_cfg in STANDARD_SLOTS:
-                    matches = day_df[day_df['StartMin'].apply(
-                        lambda x: abs(x - slot_cfg["start_min"]) <= 30
-                    )]
-                    if matches.empty:
-                        row_dict[slot_cfg["label"]] = "🟢 فارغة"
-                    else:
-                        row_dict[slot_cfg["label"]] = " | ".join(
-                            f"{r['الرمز']}{r['الرقم']} ({r['الشعبة']})"
-                            for _, r in matches.iterrows()
-                        )
-                preview.append(row_dict)
-
-            st.dataframe(pd.DataFrame(preview).set_index("اليوم"),
-                         use_container_width=True)
-
-        st.divider()
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                "🏢 تحميل جدول القاعات (ملون)",
-                export_rooms_styled(data, "occupied"),
-                "Rooms_Schedule.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-        with col2:
-            st.download_button(
-                "✅ تحميل القاعات الفارغة",
-                export_rooms_styled(data, "empty"),
-                "Available_Rooms.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-    # ── Tab 3 : Conflicts ──────────────────────────────────────────────────────
-    with tab3:
-        st.subheader("تقرير التعارضات الزمنية")
-        if conflicts:
-            st.error(f"⚠️  يوجد **{len(conflicts)}** تداخل في القاعات — يرجى المراجعة قبل الاعتماد.")
-            conflict_df = pd.DataFrame(conflicts)
-            # Allow filtering by room
-            rooms_in_conflict = ["الكل"] + sorted(conflict_df['القاعة'].unique().tolist())
-            chosen_room = st.selectbox("🔎 تصفية حسب القاعة", rooms_in_conflict)
-            if chosen_room != "الكل":
-                conflict_df = conflict_df[conflict_df['القاعة'] == chosen_room]
-            st.dataframe(conflict_df, use_container_width=True)
-        else:
-            st.success("✅ لا توجد تداخلات زمنية — الجداول سليمة.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-if __name__ == "__main__":
-    main()
+    else:
+        st.write("No schedule found.")
+    
+    # Export all rooms as Excel
+    st.sidebar.header("📤 Export Schedules")
+    if len(all_rooms) > 0:
+        excel_data = export_all_rooms_excel(bookings_df)
+        st.sidebar.download_button(
+            label="Download all rooms schedule (Excel)",
+            data=excel_data,
+            file_name="all_rooms_schedule.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+else:
+    st.info("Please upload Excel files to start.")
