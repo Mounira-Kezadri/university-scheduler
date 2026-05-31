@@ -418,14 +418,13 @@ def render_metrics(data: pd.DataFrame, conflicts: list):
 
 def main():
     st.set_page_config(
-        page_title="نظام تصميم وإدارة الجداول — جامعة طيبة",
+        page_title="نظام تصميم وإدارة الجداول",
         page_icon="📅",
         layout="wide",
     )
 
     # ── Page header ────────────────────────────────────────────────────────────
     st.title("📅 نظام تصميم وإدارة الجداول الدراسية")
-    st.caption("الكلية التطبيقية — جامعة طيبة | وحدة برامج علوم الحاسب والمعلومات")
     st.divider()
 
     # ── File upload ────────────────────────────────────────────────────────────
@@ -437,7 +436,7 @@ def main():
     )
 
     if not uploaded:
-        st.info("⬆️  ارفعي ملف Excel واحداً أو أكثر للبدء.")
+        st.info("⬆️  ارفع ملف Excel واحداً أو أكثر للبدء.")
         return
 
     # ── Parse & cache in session_state (avoids re-parsing on every widget click)
