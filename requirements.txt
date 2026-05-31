@@ -1,0 +1,23 @@
+# ============================================================
+# نظام تصميم وإدارة الجداول الدراسية الجامعية
+# University Academic Schedule Design & Management System
+# requirements.txt — Version 1.0
+# ============================================================
+
+# Web application framework
+streamlit>=1.32.0
+
+# Data processing
+pandas>=2.0.0
+
+# Excel read/write
+openpyxl>=3.1.2
+
+# Excel file reading (used by pandas ExcelFile)
+xlrd>=2.0.1
+
+# ============================================================
+# Development / optional
+# ============================================================
+# Uncomment below if running tests or contributing:
+# pytest>=7.4.0
