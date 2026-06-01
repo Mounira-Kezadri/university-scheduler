@@ -4,11 +4,12 @@
 **Developer:** Dr. Mounira Kezadri  
 **Institution:** Applied College — Taibah University  
 **Unit:** Computer Science & Information Programs  
-**Version:** 1.0 (Initial Release)
+**Version:** 1.0 (Initial Release)  
+**Application:** First Semester 1448H Schedule Preparation — Female Students Section
 
 ---
 
-## 📌 Overview
+## Overview
 
 An interactive web application built with **Python + Streamlit** that automates the creation and analysis of academic schedules for university departments. The system reads structured Excel files, detects room conflicts, generates occupancy maps, and exports professionally formatted reports with full Arabic RTL support.
 
@@ -29,25 +30,18 @@ An interactive web application built with **Python + Streamlit** that automates 
 
 ---
 
-## ☁️ Cloud Deployment (No Installation Required)
+## Cloud Deployment (No Installation Required)
 
-Deploy for free on [Streamlit Community Cloud](https://streamlit.io/cloud):
-
-1. Push the project to a public GitHub repository
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect your GitHub repo and select `V3Scheduler.py` as the main file
-4. Click **Deploy** — your app will be live at a shareable URL
+URL: https://university-scheduler.streamlit.app/
 
 ---
 
-## 🖥️ Requirements
+## Local Deployment
+
+## Requirements
 
 - Python 3.8 or higher
 - See `requirements.txt` for all dependencies
-
----
-
-## ⚙️ Installation
 
 **1. Clone or download the project:**
 ```bash
@@ -73,7 +67,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🚀 Running the Application
+## Running the Application
 
 ```bash
 streamlit run Scheduler.py
@@ -88,7 +82,7 @@ If it doesn't open automatically, copy the URL and paste it into your browser.
 
 ---
 
-## 📁 Input File Structure
+## Input File Structure
 
 Each Excel file should represent **one academic specialization** and follow this structure:
 
@@ -111,7 +105,7 @@ Sheet name  → Specialization code (e.g., CS, IS, IT)
 Section headers appear as standalone cell values (e.g., F1, F2, F3)
 ```
 
-> ⚠️ A sample input file (`sample_input.xlsx`) is included in the repository. Review it before preparing your own files.
+> A sample input file (`sample_input.xlsx`) is included in the repository. Review it before preparing your own files.
 
 **Supported time formats:**
 - Standard hyphen: `08:00-09:30`
@@ -128,7 +122,7 @@ Section headers appear as standalone cell values (e.g., F1, F2, F3)
 
 ---
 
-## ⚙️ Customising Time Slots
+## Customising Time Slots
 
 Create a `config.json` file in the same folder as the script:
 
@@ -146,7 +140,7 @@ The app will load these on startup — no code changes required.
 
 ---
 
-## 📤 Outputs
+## Outputs
 
 | File | Contents |
 |---|---|
@@ -156,7 +150,7 @@ The app will load these on startup — no code changes required.
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 university-scheduler/
@@ -170,7 +164,7 @@ university-scheduler/
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 | Problem | Solution |
 |---|---|
@@ -182,7 +176,7 @@ university-scheduler/
 
 ---
 
-## 📖 How to Cite
+## How to Cite
 
 If you use this software in academic work, please cite it as:
 
@@ -193,13 +187,13 @@ Kezadri, M. (2025). University Academic Schedule Design & Management System
 
 ---
 
-## 📜 License
+## License
 
 This project is licensed under the **MIT License** — see the `LICENSE` file for details.
 
 ---
 
-## 👩‍💻 Author
+## Author
 
 **Dr. Mounira Kezadri**  
 Applied College, Taibah University  
