@@ -15,14 +15,16 @@
 An interactive web application built with **Python + Streamlit** that automates the creation and analysis of academic schedules for university departments. The system reads structured Excel files, detects room conflicts, generates occupancy maps, and exports professionally formatted reports with full Arabic RTL support.
 
 ---
+
 <img width="789" height="540" alt="MainPage" src="https://github.com/user-attachments/assets/f625e3a1-7759-4156-9162-c1d9c40586b4" />
+
 ---
 
 ## Features
 
 | Feature | Description |
 |---|---|
-| **Multi-file Import** | Upload and merge multiple Excel files simultaneously (one per specialization) |
+| **Multi-file Import** | Upload and merge multiple Excel files simultaneously (one file or tab per specialization) |
 | **Auto Pattern Detection** | Automatically detects 3-row or 4-row data formats |
 | **Conflict Detection** | Instantly flags time overlaps in rooms with full details |
 | **Room Schedule View** | Weekly grid per room with color-coded empty slots |
@@ -32,6 +34,7 @@ An interactive web application built with **Python + Streamlit** that automates 
 | **Full Arabic RTL Support** | Arabic course names and right-to-left interface |
 
 ---
+
 <img width="951" height="754" alt="Options" src="https://github.com/user-attachments/assets/cb706968-1341-45c0-8023-65239356bcab" />
 
 
