@@ -1,4 +1,4 @@
-<img width="951" height="754" alt="Options" src="https://github.com/user-attachments/assets/9195eb94-df9a-4f14-953e-ad0d885689ca" />
+
 # 📅 نظام تصميم وإدارة الجداول الدراسية الجامعية
 ### University Academic Schedule Design & Management System
 
@@ -7,13 +7,14 @@
 **Unit:** Computer Science & Information Programs  
 **Version:** 1.0 (Initial Release)  
 
----<img width="789" height="540" alt="MainPage" src="https://github.com/user-attachments/assets/f625e3a1-7759-4156-9162-c1d9c40586b4" />
+
 
 
 ## Overview
 
 An interactive web application built with **Python + Streamlit** that automates the creation and analysis of academic schedules for university departments. The system reads structured Excel files, detects room conflicts, generates occupancy maps, and exports professionally formatted reports with full Arabic RTL support.
 
+---<img width="789" height="540" alt="MainPage" src="https://github.com/user-attachments/assets/f625e3a1-7759-4156-9162-c1d9c40586b4" />
 ---
 
 ## Features
