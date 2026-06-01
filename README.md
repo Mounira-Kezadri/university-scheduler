@@ -3,7 +3,7 @@
 ### University Academic Schedule Design & Management System
 
 **Developer:** Dr. Mounira Kezadri  
-**Institution:** Applied College — Taibah University  
+**Institution:** Applied College - Taibah University  
 **Unit:** Computer Science & Information Programs  
 **Version:** 1.0 (Initial Release)  
 
