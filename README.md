@@ -181,7 +181,7 @@ university-scheduler/
 If you use this software in academic work, please cite it as:
 
 ```
-Kezadri, M. (2025). University Academic Schedule Design & Management System
+Kezadri, M. (2026). University Academic Schedule Design & Management System
 (Version 1.0). Applied College, Taibah University.
 ```
 
