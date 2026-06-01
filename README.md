@@ -15,7 +15,6 @@
 An interactive web application built with **Python + Streamlit** that automates the creation and analysis of academic schedules for university departments. The system reads structured Excel files, detects room conflicts, generates occupancy maps, and exports professionally formatted reports with full Arabic RTL support.
 
 ---
-<img width="842" height="722" alt="Download" src="https://github.com/user-attachments/assets/b3b9ae21-e32b-44b9-940b-a3843b570f2b" />
 <img width="789" height="540" alt="MainPage" src="https://github.com/user-attachments/assets/f625e3a1-7759-4156-9162-c1d9c40586b4" />
 ---
 
