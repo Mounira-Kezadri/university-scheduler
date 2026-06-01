@@ -433,7 +433,7 @@ def main():
     )
  
     if not uploaded:
-        st.info("⬆️  ارفعي ملف Excel واحداً أو أكثر للبدء.")
+        st.info("⬆️  الرجاء رفع ملف اكسل أو أكثر للبدء ")
         return
  
     # ── Parse & cache in session_state (avoids re-parsing on every widget click)
