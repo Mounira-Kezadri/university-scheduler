@@ -196,7 +196,7 @@ Kezadri, M. (2026). University Academic Schedule Design & Management System
 
 ## License
 
-This project is licensed under the **MIT License** — see the `LICENSE` file for details.
+This project is licensed under the **MIT License**.
 
 ---
 
