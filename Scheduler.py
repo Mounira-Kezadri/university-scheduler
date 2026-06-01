@@ -526,7 +526,7 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             st.download_button(
-                "🏢 تحميل جدول القاعات (ملون)",
+                "🏢 تحميل جدول القاعات",
                 export_rooms_styled(data, "occupied"),
                 "Rooms_Schedule.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
