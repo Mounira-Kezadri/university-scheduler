@@ -5,9 +5,9 @@
 **Institution:** Applied College — Taibah University  
 **Unit:** Computer Science & Information Programs  
 **Version:** 1.0 (Initial Release)  
-**Application:** First Semester 1448H Schedule Preparation — Female Students Section
 
----
+---<img width="789" height="540" alt="MainPage" src="https://github.com/user-attachments/assets/f625e3a1-7759-4156-9162-c1d9c40586b4" />
+
 
 ## Overview
 
@@ -15,7 +15,7 @@ An interactive web application built with **Python + Streamlit** that automates 
 
 ---
 
-## ✨ Features
+## Features
 
 | Feature | Description |
 |---|---|
