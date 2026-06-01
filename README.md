@@ -153,7 +153,8 @@ The app will load these on startup — no code changes required.
 | `Rooms_Schedule.xlsx` | One sheet per room — weekly grid with color-coded occupancy |
 | `Available_Rooms.xlsx` | Available (free) rooms per day and time slot |
 
-<img width="842" height="722" alt="Download" src="https://github.com/user-attachments/assets/e21c1c97-e165-425a-9709-78e7331d4f96" />
+<img width="804" height="705" alt="Download-Generic" src="https://github.com/user-attachments/assets/11238bae-18f5-4dc0-8bfa-ae98ff6a9d11" />
+
 
 ---
 
