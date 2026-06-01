@@ -1,3 +1,4 @@
+<img width="951" height="754" alt="Options" src="https://github.com/user-attachments/assets/9195eb94-df9a-4f14-953e-ad0d885689ca" />
 # 📅 نظام تصميم وإدارة الجداول الدراسية الجامعية
 ### University Academic Schedule Design & Management System
 
@@ -29,6 +30,8 @@ An interactive web application built with **Python + Streamlit** that automates 
 | **Full Arabic RTL Support** | Arabic course names and right-to-left interface |
 
 ---
+<img width="951" height="754" alt="Options" src="https://github.com/user-attachments/assets/cb706968-1341-45c0-8023-65239356bcab" />
+
 
 ## Cloud Deployment (No Installation Required)
 
